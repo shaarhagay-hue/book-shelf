@@ -9,22 +9,17 @@ st.set_page_config(page_title="שבת אחת וסיימתם", page_icon="📚", 
 st.title("📚 שבת אחת וסיימתם")
 st.subheader("קטלוג הספרים המשותף של הצוות")
 
-# קישור לגיליון הגוגל החדש שלך - נא להחליף בקישור האמיתי!
-spreadsheet_url = "https://docs.google.com/spreadsheets/d/1-mrlAW07r7OIDhrW7-abdeF4fkySZzkODD4bEg6T7kg/edit?usp=sharing"
-
-# חיבור לנתונים
+# חיבור מאובטח לנתונים דרך ה-Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    df = conn.read(spreadsheet=spreadsheet_url)
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=["שם הספר", "שם המחבר", "מיקום"])
-except:
+    # קריאת הנתונים מהגיליון (ללא שמירה בזיכרון מטמון כדי שיתעדכן מיד)
+    df = conn.read(ttl=0)
+    df = df.dropna(how="all")
+except Exception as e:
     df = pd.DataFrame(columns=["שם הספר", "שם המחבר", "מיקום"])
 
-df = df.dropna(how="all")
-
-# --- תפריט צד להוספת ספרים ---
+# --- תפריט צד להוספת ספר חדש ---
 st.sidebar.header("➕ הוספת ספר חדש")
 with st.sidebar.form("add_form", clear_on_submit=True):
     new_name = st.text_input("שם הספר")
@@ -35,11 +30,17 @@ with st.sidebar.form("add_form", clear_on_submit=True):
     
     if submit:
         if new_name and new_author:
+            # יצירת שורה חדשה וחיבור לטבלה
             new_row = pd.DataFrame([{"שם הספר": new_name, "שם המחבר": new_author, "מיקום": new_loc}])
-            df = pd.concat([df, new_row], ignore_index=True)
-            conn.update(spreadsheet=spreadsheet_url, data=df)
-            st.sidebar.success(f"הספר '{new_name}' נוסף בהצלחה!")
-            st.rerun()
+            updated_df = pd.concat([df, new_row], ignore_index=True)
+            
+            try:
+                # פקודת העדכון ששולחת את המידע לגוגל שיטס
+                conn.update(data=updated_df)
+                st.sidebar.success(f"הספר '{new_name}' נוסף בהצלחה!")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error("שגיאה בעדכון. ודאי שהגדרת את ה-Secrets ב-Streamlit.")
         else:
             st.sidebar.error("חובה למלא שם ספר ומחבר")
 
@@ -48,7 +49,6 @@ st.write("---")
 search = st.text_input("🔍 חפשו ספר, מחבר או מיקום:", placeholder="למשל: מאיר שלו, מדף א'...")
 
 if search:
-    # חיפוש חכם בכל העמודות
     mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
     results = df[mask]
     
@@ -63,6 +63,5 @@ else:
     else:
         st.info("הקטלוג ריק כרגע. זה הזמן להוסיף את הספר הראשון!")
 
-# סיומת
 st.write("---")
-st.caption(f"סה''כ ספרים ב-'שבת אחת וסיימתם': {len(df)}")
+st.caption(f"סה''כ ספרים רשומים: {len(df)}")
