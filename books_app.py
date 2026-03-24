@@ -1,63 +1,47 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import time
 
-# הגדרות עמוד
+# הגדרות עמוד - כותרת ועיצוב
 st.set_page_config(page_title="שבת אחת וסיימתם", page_icon="📚", layout="centered")
 
 st.title("📚 שבת אחת וסיימתם")
-st.subheader("קטלוג הספרים המשותף של הצוות")
+st.subheader("ניהול וחיפוש ספרים במקום אחד")
 
-# חיבור ישיר לגיליון (נא לוודא שהקישור נכון)
-spreadsheet_url = "https://docs.google.com/spreadsheets/d/1-mrlAW07r7OIDhrW7-abdeF4fkySZzkODD4bEg6T7kg/edit?usp=sharing"
+# --- חלק 1: הוספת ספר (דרך טופס גוגל מוטמע) ---
+with st.expander("➕ הוספת ספר חדש לקטלוג", expanded=True):
+    # הקישור ששלחת מוטמע כאן:
+    google_form_url = "https://docs.google.com/forms/d/e/1FAIpQLSet8S6RvBmV-OLtFlRrBe3SBfpnwIkjekwOrYvlMyE2XER0Xw/viewform" 
+    
+    st.markdown(f'<iframe src="{google_form_url}" width="100%" height="600" frameborder="0" marginheight="0" marginwidth="0">טוען...</iframe>', unsafe_allow_html=True)
+    st.info("💡 לאחר לחיצה על 'שליחה' בטופס, רעננו את הדף (F5) כדי לראות את הספר בטבלה למטה.")
 
-# יצירת חיבור
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- חלק 2: מנוע חיפוש ותצוגת הספרים ---
+st.write("---")
+st.write("### 🔍 חפשו ספר בקטלוג")
 
-# פונקציה לטעינת נתונים ללא דיליי (TTL=0)
-def load_data():
-    return conn.read(spreadsheet=spreadsheet_url, ttl=0)
+# משיכת הנתונים מגיליון הגוגל (CSV Export עם מנגנון רענון)
+SHEET_ID = "1-mrlAW07r7OIDhrW7-abdeF4fkySZzkODD4bEg6T7kg"
+t = int(time.time()) # מונע מהדפדפן להציג נתונים ישנים מהזיכרון
+url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&cachebust={t}"
 
 try:
-    df = load_data()
-    df = df.dropna(how="all")
-except:
-    df = pd.DataFrame(columns=["שם הספר", "שם המחבר", "מיקום"])
+    # קריאת הנתונים וניקוי שורות ריקות
+    df = pd.read_csv(url).dropna(how="all")
+    
+    # תיבת חיפוש
+    search_term = st.text_input("הקלידו שם ספר, מחבר או מיקום:", placeholder="למשל: מאיר שלו...")
+    
+    if search_term:
+        # סינון הטבלה לפי מילת החיפוש
+        mask = df.astype(str).apply(lambda x: x.str.contains(search_term, case=False, na=False)).any(axis=1)
+        display_df = df[mask]
+    else:
+        display_df = df
 
-# --- טופס הוספה ---
-with st.expander("➕ הוספת ספר חדש", expanded=True):
-    with st.form("add_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            new_name = st.text_input("שם הספר")
-        with col2:
-            new_author = st.text_input("שם המחבר")
-        new_loc = st.text_input("איפה הוא נמצא?")
-        
-        submit = st.form_submit_button("שמור לקטלוג 💾")
-        
-        if submit:
-            if new_name and new_author:
-                # הוספת השורה לטבלה הקיימת
-                new_row = pd.DataFrame([{"שם הספר": new_name, "שם המחבר": new_author, "מיקום": new_loc}])
-                updated_df = pd.concat([df, new_row], ignore_index=True)
-                
-                # עדכון הגיליון בגוגל
-                conn.update(spreadsheet=spreadsheet_url, data=updated_df)
-                st.success(f"הספר '{new_name}' נשמר בהצלחה!")
-                st.rerun() # רענון מיידי של האפליקציה להצגת הנתון החדש
-            else:
-                st.error("חובה למלא שם ספר ומחבר")
+    # הצגת הטבלה
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.caption(f"סה''כ ספרים רשומים במערכת: {len(df)}")
 
-# --- חיפוש ותצוגה ---
-st.write("---")
-search = st.text_input("🔍 חפשו ספר, מחבר או מיקום:")
-
-if search:
-    mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
-    display_df = df[mask]
-else:
-    display_df = df
-
-st.dataframe(display_df, use_container_width=True, hide_index=True)
-st.caption(f"סה''כ ספרים: {len(df)}")
+except Exception as e:
+    st.warning("הקטלוג עדיין ריק או בטעינה. ברגע שתשלחו את הספר הראשון בטופס, הוא יופיע כאן.")
